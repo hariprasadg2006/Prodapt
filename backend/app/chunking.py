@@ -19,6 +19,8 @@ def _get_model():
     """Lazy-load the sentence-transformer model (heavy import)."""
     global _model
     if _model is None:
+        import os
+        os.environ["TF_USE_LEGACY_KERAS"] = "1"
         from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("all-MiniLM-L6-v2")
     return _model
