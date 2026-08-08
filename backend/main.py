@@ -15,7 +15,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import validate_config
+from app.config import validate_config, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from app.models import HealthResponse, SessionInfoResponse, SessionDocument
 from app.storage import get_session
 
@@ -33,7 +33,10 @@ logger = logging.getLogger("uvicorn.error")
 async def lifespan(app: FastAPI):
     """Validate configuration on startup."""
     validate_config()
-    logger.info("✅ GEMINI_API_KEY is set — server is ready.")
+    if OPENROUTER_API_KEY:
+        logger.info(f"✅ OPENROUTER_API_KEY is set — model: {OPENROUTER_MODEL}")
+    else:
+        logger.info("✅ GEMINI_API_KEY is set — model: gemini-2.0-flash")
     yield
     logger.info("Server shutting down.")
 

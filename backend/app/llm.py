@@ -1,5 +1,5 @@
 """
-LLM module — all Gemini API interactions.
+LLM module — supports OpenRouter (OpenAI-compatible) and Google Gemini API.
 
 Provides three high-level functions:
   • summarize_text()
@@ -11,29 +11,55 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional
+import httpx
 
-from google import genai
-from google.genai import types
+from app.config import GEMINI_API_KEY, OPENROUTER_API_KEY, OPENROUTER_MODEL
 
-from app.config import GEMINI_API_KEY
-
-
-def _get_client() -> genai.Client:
-    """Return a configured Gemini client."""
-    return genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL_ID = "gemini-2.0-flash"
 
 
-MODEL_ID = "gemini-2.0-flash"
+def _generate(prompt: str, max_tokens: int = 512, temperature: float = 0.3) -> str:
+    """Generate completion using OpenRouter if available, falling back to Gemini."""
+    if OPENROUTER_API_KEY:
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
+    else:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_ID,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+            ),
+        )
+        return response.text.strip()
 
 
 # ── Summarization ──────────────────────────────────────────────────────────
 
 def summarize_text(text: str, filename: str = "document") -> str:
     """
-    Generate a concise 150-250 word summary of the given text using Gemini.
+    Generate a concise 150-250 word summary of the given text.
     """
-    client = _get_client()
-
     prompt = (
         f"You are a research assistant. Summarize the following document "
         f"('{filename}') in 150-250 words. Use clear, plain language. "
@@ -42,24 +68,13 @@ def summarize_text(text: str, filename: str = "document") -> str:
         f"Summary:"
     )
 
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.3,
-            max_output_tokens=512,
-        ),
-    )
-
-    return response.text.strip()
+    return _generate(prompt, max_tokens=512, temperature=0.3)
 
 
 def summarize_cross_document(summaries: List[Dict[str, str]]) -> str:
     """
     Generate a cross-document summary from individual document summaries.
     """
-    client = _get_client()
-
     docs_block = "\n\n".join(
         f"[{s['filename']}]: {s['summary']}" for s in summaries
     )
@@ -72,16 +87,7 @@ def summarize_cross_document(summaries: List[Dict[str, str]]) -> str:
         "Cross-document summary:"
     )
 
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.3,
-            max_output_tokens=512,
-        ),
-    )
-
-    return response.text.strip()
+    return _generate(prompt, max_tokens=512, temperature=0.3)
 
 
 # ── Insights extraction ────────────────────────────────────────────────────
@@ -92,8 +98,6 @@ def extract_insights(text: str, filename: str = "document") -> List[Dict[str, An
 
     Returns a list of dicts: [{"text": "...", "page": int|null}, ...]
     """
-    client = _get_client()
-
     prompt = (
         f"You are a research assistant. Extract 5-8 key insights from the "
         f"following document ('{filename}'). For each insight, provide:\n"
@@ -106,28 +110,17 @@ def extract_insights(text: str, filename: str = "document") -> List[Dict[str, An
         f"JSON:"
     )
 
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.3,
-            max_output_tokens=1024,
-        ),
-    )
+    raw = _generate(prompt, max_tokens=1024, temperature=0.3)
 
-    # Parse the JSON response
-    raw = response.text.strip()
     # Strip markdown code fences if present
     if raw.startswith("```"):
         lines = raw.split("\n")
-        # Remove first and last lines (code fences)
         lines = [l for l in lines if not l.strip().startswith("```")]
         raw = "\n".join(lines)
 
     try:
         insights = json.loads(raw)
     except json.JSONDecodeError:
-        # Fallback: return the raw text as a single insight
         insights = [{"text": raw, "page": None}]
 
     return insights
@@ -143,12 +136,7 @@ def answer_question(
     """
     Answer a question using retrieved context chunks, citing [filename, page]
     inline for every claim.
-
-    Returns the answer string.
     """
-    client = _get_client()
-
-    # Build context block
     context_parts = []
     for i, chunk in enumerate(context_chunks, 1):
         page_info = f"page {chunk['page']}" if chunk.get("page") else "unknown page"
@@ -157,7 +145,6 @@ def answer_question(
         )
     context_block = "\n\n".join(context_parts)
 
-    # Build chat history block
     history_block = ""
     if chat_history:
         history_lines = []
@@ -182,13 +169,4 @@ def answer_question(
         f"Answer:"
     )
 
-    response = client.models.generate_content(
-        model=MODEL_ID,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.3,
-            max_output_tokens=1024,
-        ),
-    )
-
-    return response.text.strip()
+    return _generate(prompt, max_tokens=1024, temperature=0.3)
