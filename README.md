@@ -1,66 +1,137 @@
-# ResearchAI — Frontend (auth + workspace)
+# 🔬 ResearchAI — Prodapt RAG Research Assistant
 
-A React + plain CSS frontend for "ResearchAI", themed in Prodapt's red and
-white identity. It has two parts:
+An intelligent, full-stack Retrieval-Augmented Generation (RAG) platform designed to ingest multi-format research documents (PDF, DOCX, TXT), perform local vector embeddings, extract key takeaways, generate cross-document summaries, and answer natural-language queries with inline source citations.
 
-1. **Sign In / Sign Up** — frontend-only, no real auth (unchanged from the
-   original demo — validates locally, never calls a backend).
-2. **Workspace** — the real thing. After signing in/up, the user lands in a
-   workspace that talks to the FastAPI backend described in your
-   integration guide: upload documents, generate summaries, extract
-   insights, and chat with citations.
+---
 
-## Where each file goes
+## 🌟 Key Features
 
+- 📄 **Multi-Format Ingestion**: Upload PDF, DOCX, and plain text files seamlessly.
+- ⚡ **Local Embedding & Retrieval**: Zero vector-database overhead; uses `SentenceTransformers` (`all-MiniLM-L6-v2`) and NumPy cosine similarity for lightning-fast retrieval.
+- 🧠 **Dual LLM Provider Support**:
+  - **OpenRouter API** (Default: `meta-llama/llama-3.3-70b-instruct` or any model slug).
+  - **Google Gemini API** (`gemini-2.0-flash` fallback).
+- 📝 **Document Summarization**: Single-document and synthesized cross-document executive summaries.
+- 💡 **Key Insights Extraction**: Automatically extracts 5–8 bulleted insights linked to specific source page numbers.
+- 💬 **Grounded RAG Chat**: Interactive Q&A strictly grounded in your uploaded documents with inline citations (`[filename, page X]`).
+- 🎨 **Modern Bespoke Interface**: React 18 SPA built with custom design tokens, micro-animations, and a built-in Demo Mode toggle for offline testing.
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+graph TD
+    User["👤 User / Researcher"] --> UI["🎨 React 18 + Vite Frontend (Port 5173)"]
+    UI -->|REST API| API["⚡ FastAPI Backend (Port 8000)"]
+    
+    subgraph Backend Pipeline
+        API --> Parser["📄 Document Parser (pdfplumber / python-docx)"]
+        Parser --> Chunker["✂️ Text Chunker (500 tokens, 100 overlap)"]
+        Chunker --> Embedder["🔢 SentenceTransformers (all-MiniLM-L6-v2)"]
+        Embedder --> VectorStore["💾 In-Memory Vector Store & Cosine Similarity"]
+        VectorStore --> LLM["🤖 LLM Provider (OpenRouter / Google Gemini)"]
+    end
+    
+    LLM -->|Streamed / Structured JSON| API
+    API --> UI
 ```
-researchai-auth/
-├── index.html, package.json, vite.config.js, .env.example
-└── src/
-    ├── main.jsx, App.jsx, index.css
-    ├── services/
-    │   └── api.js                  ← fetch wrappers for every backend endpoint
-    ├── utils/
-    │   └── validation.js           ← sign in/up field validation
-    └── components/
-        ├── Logo.jsx, FormInput.jsx, PasswordInput.jsx
-        ├── AuthLayout.jsx, AuthIllustration.jsx
-        ├── SignIn.jsx, SignUp.jsx
-        └── Workspace.jsx            ← post-login screen, composes:
-            ├── FileUpload.jsx        (drag/drop, .pdf/.docx/.txt only)
-            ├── DocumentList.jsx      (per-doc status, "All documents" mode)
-            ├── SummaryPanel.jsx      (POST /summary)
-            ├── InsightsPanel.jsx     (POST /insights, page refs)
-            └── ChatPanel.jsx         (POST /chat, multi-turn + sources)
+
+---
+
+## 🛠️ Technology Stack
+
+### **Frontend**
+- **Framework**: React 18 (Vite)
+- **Styling**: Modern Vanilla CSS with CSS Variables & Glassmorphism Design System
+- **Icons**: Inline SVG / Custom Design System
+
+### **Backend**
+- **Framework**: FastAPI + Uvicorn
+- **Language**: Python 3.11+
+- **Embeddings**: `sentence-transformers` (`all-MiniLM-L6-v2`)
+- **LLM Integrations**: `httpx` (OpenRouter API), `google-genai` (Gemini API)
+- **Document Parsers**: `pdfplumber`, `python-docx`
+- **Math/Vector Ops**: `numpy`, `torch`
+
+---
+
+## 🚀 Quick Start Guide
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/hariprasadg2006/Prodapt.git
+cd Prodapt
 ```
 
-## Running it against your backend
+---
+
+### 2. Backend Setup
 
 ```bash
-cp .env.example .env       # defaults to http://localhost:8000
-npm install
-npm run dev
+cd backend
+
+# Create virtual environment (optional but recommended)
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-Start your FastAPI backend separately (`uvicorn main:app --reload`), then
-sign in/up in the app — you'll land in the workspace, which calls the real
-API from there on.
+#### Configure Environment Variables (`backend/.env`)
+Create a `.env` file inside the `backend` directory:
 
-## Notes
+```env
+# Recommended: OpenRouter API Key (Supports Llama 3.3 70B, DeepSeek R1, GPT-4o)
+OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY-HERE
+OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct
 
-- `session_id` is kept only in React state (`Workspace.jsx`), never in
-  `localStorage`, per the guide — refreshing the page starts a new session.
-- Every API call goes through `src/services/api.js`; errors surface as
-  `err.message` directly in the relevant panel rather than crashing anything.
-- Unsupported file types are filtered out client-side before upload; failed
-  documents (e.g. encrypted PDFs) show a "Failed" badge and can't be
-  selected for summary/insights/chat.
-- Sign In / Sign Up remain frontend-only — no account is actually created,
-  by design.
+# Fallback: Google Gemini API Key
+GEMINI_API_KEY=YOUR-GEMINI-API-KEY
+```
 
-## Theme
+#### Start FastAPI Server
+```bash
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
+> Server running at: `http://127.0.0.1:8000`
 
-Palette lives in `src/index.css` custom properties: `--accent` (#d1001f,
-Prodapt red), `--accent-2` (#9c0016, deeper red for gradients),
-`--accent-tint` (#ffe8ea, tint for highlights/badges), on a white
-(`--bg`/`--surface`) background. The auth side-panel illustration includes a
-triangular grid motif echoing Prodapt's mark.
+---
+
+### 3. Frontend Setup
+
+Open a new terminal window:
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+> Application running at: `http://localhost:5173`
+
+---
+
+## 🔌 API Endpoints Summary
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | Server health check endpoint |
+| `POST` | `/upload` | Upload multiple PDF/DOCX/TXT files; parses, chunks & embeds |
+| `POST` | `/summary` | Generate single or cross-document executive summaries |
+| `POST` | `/insights` | Extract key insights with page-level citations |
+| `POST` | `/chat` | RAG Q&A query grounded in document context |
+| `GET` | `/session/{session_id}` | Fetch session metadata for rehydrating UI |
+
+---
+
+## 🛡️ License
+
+Distributed under the MIT License. See `LICENSE` for more information.
